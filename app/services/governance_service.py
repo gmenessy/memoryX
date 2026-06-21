@@ -1,0 +1,663 @@
+"""
+Governance Service - Business Logic Layer for Governance Rules Engine
+
+The Governance Rules Engine provides executable memory (rules that govern actions).
+Rules are evaluated by the Gatekeeper before actions are executed.
+"""
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.governance import (
+    GovernanceRuleCreate,
+    GovernanceRuleUpdate,
+    GovernanceRuleResponse,
+    GatekeeperCheckRequest,
+    GatekeeperCheckResponse,
+    RiskAssessment,
+    Action,
+    Severity,
+)
+from app.repositories.governance_repository import GovernanceRepository
+
+
+class GovernanceService:
+    """
+    Service for Governance Rules Engine operations.
+    Implements the business logic for rule management and validation.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.repo = GovernanceRepository(session)
+
+    # Rule Management
+
+    async def create_rule(self, rule_data: GovernanceRuleCreate) -> GovernanceRuleResponse:
+        """Create a new governance rule."""
+        # Check if rule name already exists
+        existing = await self.repo.get_rule_by_name(rule_data.name)
+        if existing:
+            raise ValueError(f"Rule with name '{rule_data.name}' already exists")
+
+        return await self.repo.create_rule(rule_data)
+
+    async def get_rule(self, rule_id: UUID) -> GovernanceRuleResponse | None:
+        """Get rule by ID."""
+        return await self.repo.get_rule(rule_id)
+
+    async def get_rule_by_name(self, name: str) -> GovernanceRuleResponse | None:
+        """Get rule by name."""
+        return await self.repo.get_rule_by_name(name)
+
+    async def list_rules(
+        self,
+        enabled_only: bool = True,
+        scope: str | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> list[GovernanceRuleResponse]:
+        """List governance rules with optional filtering."""
+        return await self.repo.list_rules(
+            enabled_only=enabled_only,
+            scope=scope,
+            severity=severity,
+            limit=limit,
+            offset=offset
+        )
+
+    async def update_rule(self, rule_id: UUID, update_data: GovernanceRuleUpdate) -> GovernanceRuleResponse | None:
+        """Update a governance rule."""
+        return await self.repo.update_rule(rule_id, update_data)
+
+    async def delete_rule(self, rule_id: UUID) -> bool:
+        """Delete a governance rule."""
+        return await self.repo.delete_rule(rule_id)
+
+    async def count_rules(
+        self,
+        enabled_only: bool = True,
+        scope: str | None = None
+    ) -> int:
+        """Count governance rules."""
+        return await self.repo.count_rules(
+            enabled_only=enabled_only,
+            scope=scope
+        )
+
+    # Rule Evaluation
+
+    async def evaluate_rules(
+        self,
+        request: GatekeeperCheckRequest,
+        rules: list[GovernanceRuleResponse] | None = None
+    ) -> tuple[GatekeeperCheckResponse, RiskAssessment]:
+        """
+        Evaluate governance rules against an action request.
+
+        This is the CORE function of the Governance Rules Engine.
+        It evaluates all applicable rules and provides recommendations.
+
+        Args:
+            request: The action validation request
+            rules: Optional list of rules to evaluate (if None, fetches applicable)
+
+        Returns:
+            Tuple of (check_response, risk_assessment)
+        """
+        # Get applicable rules if not provided
+        if rules is None:
+            rules = await self.repo.get_applicable_rules(
+                action_type=request.action_type,
+                scope=request.scope,
+                enabled_only=True
+            )
+
+        # Evaluate rules and find triggered ones
+        triggered_rules = []
+        highest_severity = Severity.LOW
+        recommended_action = Action.ALLOW
+
+        for rule in rules:
+            if self._evaluate_condition(rule.condition, request):
+                triggered_rules.append({
+                    "rule_id": str(rule.rule_id),
+                    "name": rule.name,
+                    "description": rule.description,
+                    "action": rule.action,
+                    "severity": rule.severity
+                })
+
+                # Determine highest severity
+                rule_severity = Severity(rule.severity)
+                if self._severity_compare(rule_severity, highest_severity) > 0:
+                    highest_severity = rule_severity
+
+                # Use the most restrictive action
+                rule_action = Action(rule.action)
+                if self._action_compare(rule_action, recommended_action) > 0:
+                    recommended_action = rule_action
+
+        # Calculate risk assessment
+        risk_assessment = await self._assess_risk(request, triggered_rules)
+
+        # Determine if action is allowed
+        allowed = recommended_action in [Action.ALLOW, Action.WARN]
+
+        # Generate response
+        warnings = []
+        alternatives = []
+
+        if recommended_action == Action.WARN:
+            warnings.append(f"Action triggers {len(triggered_rules)} governance rule(s)")
+        elif recommended_action == Action.REVIEW:
+            warnings.append("Action requires review before proceeding")
+            alternatives.append("Request review from authorized personnel")
+        elif recommended_action == Action.BLOCK:
+            warnings.append("Action is blocked by governance rules")
+            alternatives = await self._generate_alternatives(request, triggered_rules)
+        elif recommended_action == Action.ALTERNATIVE:
+            warnings.append("Alternative approach recommended")
+            alternatives = await self._generate_alternatives(request, triggered_rules)
+
+        response = GatekeeperCheckResponse(
+            allowed=allowed,
+            action=recommended_action.value,
+            reason=self._generate_reason(triggered_rules, highest_severity),
+            triggered_rules=triggered_rules,
+            risk_score=risk_assessment.risk_score,
+            alternatives=alternatives,
+            warnings=warnings
+        )
+
+        return response, risk_assessment
+
+    def _evaluate_condition(
+        self,
+        condition: dict[str, Any],
+        request: GatekeeperCheckRequest
+    ) -> bool:
+        """
+        Evaluate a rule condition against the request.
+
+        Supports:
+        - Action type matching
+        - Actor pattern matching (regex)
+        - Scope pattern matching (regex)
+        - Data conditions (equals, not_equals, contains, greater_than, less_than)
+
+        Args:
+            condition: Rule condition logic
+            request: Validation request
+
+        Returns:
+            True if condition is met
+        """
+        if not condition:
+            return True
+
+        # Check action type match
+        if "action_type" in condition:
+            if condition["action_type"] != request.action_type:
+                return False
+
+        # Check actor patterns (regex support)
+        if "actor_pattern" in condition:
+            import re
+            pattern = condition["actor_pattern"]
+            if not re.search(pattern, request.actor):
+                return False
+
+        # Check scope patterns (regex support)
+        if "scope_pattern" in condition:
+            import re
+            pattern = condition["scope_pattern"]
+            if not re.search(pattern, request.scope):
+                return False
+
+        # Check data conditions
+        if "data_conditions" in condition:
+            for data_cond in condition["data_conditions"]:
+                field = data_cond.get("field")
+                operator = data_cond.get("operator")
+                value = data_cond.get("value")
+
+                if field not in request.target_data:
+                    if operator != "not_equals":
+                        return False
+                    continue
+
+                target_value = request.target_data[field]
+
+                if operator == "equals":
+                    if target_value != value:
+                        return False
+                elif operator == "not_equals":
+                    if target_value == value:
+                        return False
+                elif operator == "contains":
+                    if value not in str(target_value):
+                        return False
+                elif operator == "greater_than":
+                    try:
+                        if not float(target_value) > float(value):
+                            return False
+                    except (ValueError, TypeError):
+                        return False
+                elif operator == "less_than":
+                    try:
+                        if not float(target_value) < float(value):
+                            return False
+                    except (ValueError, TypeError):
+                        return False
+                elif operator == "exists":
+                    if field not in request.target_data:
+                        return False
+                elif operator == "not_exists":
+                    if field in request.target_data:
+                        return False
+
+        # Check metadata conditions
+        if "metadata_conditions" in condition:
+            for meta_cond in condition["metadata_conditions"]:
+                field = meta_cond.get("field")
+                operator = meta_cond.get("operator")
+                value = meta_cond.get("value")
+
+                if field not in request.metadata:
+                    if operator != "not_equals":
+                        return False
+                    continue
+
+                target_value = request.metadata[field]
+
+                if operator == "equals":
+                    if target_value != value:
+                        return False
+                elif operator == "contains":
+                    if value not in str(target_value):
+                        return False
+
+        return True
+
+    async def _assess_risk(
+        self,
+        request: GatekeeperCheckRequest,
+        triggered_rules: list[dict[str, Any]]
+    ) -> RiskAssessment:
+        """
+        Assess risk for an action.
+
+        Risk factors:
+        - Triggered rules (severity-based)
+        - Action type (some actions are inherently risky)
+        - Actor (non-system actors have higher risk)
+        - Target data (size, sensitivity)
+
+        Args:
+            request: Validation request
+            triggered_rules: Rules that were triggered
+
+        Returns:
+            Risk assessment result
+        """
+        risk_factors = []
+        risk_score = 0.0
+
+        # Risk from triggered rules
+        for rule in triggered_rules:
+            severity = rule.get("severity", "low")
+            if severity == "critical":
+                risk_score += 0.3
+            elif severity == "high":
+                risk_score += 0.2
+            elif severity == "medium":
+                risk_score += 0.1
+            else:  # low
+                risk_score += 0.05
+
+            risk_factors.append({
+                "type": "governance_rule",
+                "description": f"Rule '{rule['name']}' triggered",
+                "severity": severity
+            })
+
+        # Risk from action type
+        risky_actions = ["delete", "deploy", "execute", "overwrite", "destroy"]
+        if request.action_type in risky_actions:
+            risk_score += 0.15
+            risk_factors.append({
+                "type": "action_type",
+                "description": f"High-risk action type: {request.action_type}",
+                "severity": "medium"
+            })
+
+        # Risk from actor
+        if "system" not in request.actor.lower():
+            risk_score += 0.05
+            risk_factors.append({
+                "type": "actor",
+                "description": "Non-system actor",
+                "severity": "low"
+            })
+
+        # Risk from scope
+        if "production" in request.scope.lower():
+            risk_score += 0.1
+            risk_factors.append({
+                "type": "scope",
+                "description": "Production scope action",
+                "severity": "medium"
+            })
+
+        # Risk from target data size
+        if request.target_data:
+            data_size = len(str(request.target_data))
+            if data_size > 10000:  # Large payload
+                risk_score += 0.05
+                risk_factors.append({
+                    "type": "data_size",
+                    "description": f"Large payload: {data_size} bytes",
+                    "severity": "low"
+                })
+
+        # Normalize risk score
+        risk_score = min(risk_score, 1.0)
+
+        # Determine severity level
+        if risk_score >= 0.7:
+            severity = Severity.CRITICAL
+        elif risk_score >= 0.5:
+            severity = Severity.HIGH
+        elif risk_score >= 0.3:
+            severity = Severity.MEDIUM
+        else:
+            severity = Severity.LOW
+
+        # Generate recommendations
+        recommendations = []
+        if risk_score >= 0.5:
+            recommendations.append("Review action before proceeding")
+        if risk_score >= 0.7:
+            recommendations.append("Consider alternative approaches")
+        if any(rf["type"] == "governance_rule" for rf in risk_factors):
+            recommendations.append("Ensure all governance requirements are met")
+        if risk_score >= 0.3 and "production" in request.scope.lower():
+            recommendations.append("Test in staging environment first")
+
+        return RiskAssessment(
+            risk_score=risk_score,
+            risk_factors=risk_factors,
+            severity=severity,
+            recommendations=recommendations
+        )
+
+    async def _generate_alternatives(
+        self,
+        request: GatekeeperCheckRequest,
+        triggered_rules: list[dict[str, Any]]
+    ) -> list[str]:
+        """
+        Generate alternative approaches for blocked/review actions.
+
+        Args:
+            request: Original validation request
+            triggered_rules: Rules that were triggered
+
+        Returns:
+            List of alternative approaches
+        """
+        alternatives = []
+
+        # Based on action type
+        action_alternatives = {
+            "delete": [
+                "Consider archiving instead of deleting",
+                "Use soft-delete with retention period",
+                "Export data before deletion"
+            ],
+            "deploy": [
+                "Request approval from authorized personnel",
+                "Deploy to staging environment first",
+                "Create rollback plan before deploy"
+            ],
+            "memory_update": [
+                "Create a new memory instead of updating",
+                "Use memory evolution patch system"
+            ],
+            "overwrite": [
+                "Create a new version instead of overwriting",
+                "Review existing content first"
+            ],
+            "merge": [
+                "Review merge conflicts carefully",
+                "Request manual review before merge"
+            ],
+            "execute": [
+                "Run in sandboxed environment",
+                "Review code before execution",
+                "Request approval for execution"
+            ]
+        }
+
+        if request.action_type in action_alternatives:
+            alternatives.extend(action_alternatives[request.action_type])
+
+        # Based on scope
+        if "production" in request.scope.lower():
+            alternatives.extend([
+                "Perform action in development environment first",
+                "Request additional testing and validation",
+                "Schedule during maintenance window"
+            ])
+
+        # Based on triggered rules
+        for rule in triggered_rules:
+            if "approval" in rule["name"].lower():
+                alternatives.append(f"Obtain approval as per '{rule['name']}' rule")
+            if "review" in rule["name"].lower():
+                alternatives.append(f"Complete review as per '{rule['name']}' rule")
+            if "backup" in rule["name"].lower():
+                alternatives.append(f"Create backup as per '{rule['name']}' rule")
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_alternatives = []
+        for alt in alternatives:
+            if alt not in seen:
+                seen.add(alt)
+                unique_alternatives.append(alt)
+
+        return unique_alternatives
+
+    def _generate_reason(
+        self,
+        triggered_rules: list[dict[str, Any]],
+        severity: Severity
+    ) -> str:
+        """
+        Generate reason for governance decision.
+
+        Args:
+            triggered_rules: Rules that were triggered
+            severity: Highest severity level
+
+        Returns:
+            Human-readable reason
+        """
+        if not triggered_rules:
+            return "Action complies with all governance rules"
+
+        count = len(triggered_rules)
+        if severity == Severity.CRITICAL:
+            return f"CRITICAL: {count} critical governance rule(s) violated"
+        elif severity == Severity.HIGH:
+            return f"HIGH: {count} high-severity governance rule(s) triggered"
+        elif severity == Severity.MEDIUM:
+            return f"MEDIUM: {count} governance rule(s) triggered - review recommended"
+        else:
+            return f"LOW: {count} governance rule(s) triggered - proceed with caution"
+
+    def _severity_compare(self, s1: Severity, s2: Severity) -> int:
+        """Compare two severity levels."""
+        order = [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
+        return order.index(s1) - order.index(s2)
+
+    def _action_compare(self, a1: Action, a2: Action) -> int:
+        """Compare two actions (more restrictive > less restrictive)."""
+        restrictiveness = {
+            Action.ALLOW: 0,
+            Action.WARN: 1,
+            Action.REVIEW: 2,
+            Action.ALTERNATIVE: 3,
+            Action.BLOCK: 4
+        }
+        return restrictiveness[a1] - restrictiveness[a2]
+
+    # Batch Operations
+
+    async def bulk_enable_rules(self, rule_ids: list[UUID]) -> list[GovernanceRuleResponse]:
+        """
+        Enable multiple rules at once.
+
+        Args:
+            rule_ids: List of rule IDs to enable
+
+        Returns:
+            List of updated rules
+        """
+        updated = []
+        for rule_id in rule_ids:
+            update_data = GovernanceRuleUpdate(enabled=True)
+            rule = await self.repo.update_rule(rule_id, update_data)
+            if rule:
+                updated.append(rule)
+        return updated
+
+    async def bulk_disable_rules(self, rule_ids: list[UUID]) -> list[GovernanceRuleResponse]:
+        """
+        Disable multiple rules at once.
+
+        Args:
+            rule_ids: List of rule IDs to disable
+
+        Returns:
+            List of updated rules
+        """
+        updated = []
+        for rule_id in rule_ids:
+            update_data = GovernanceRuleUpdate(enabled=False)
+            rule = await self.repo.update_rule(rule_id, update_data)
+            if rule:
+                updated.append(rule)
+        return updated
+
+    # Rule Templates
+
+    async def create_rule_from_template(
+        self,
+        template: str,
+        params: dict[str, Any]
+    ) -> GovernanceRuleResponse:
+        """
+        Create a rule from a predefined template.
+
+        Available templates:
+        - "no_deploy_without_snapshot": Block deploy without snapshot
+        - "avoid_known_failures": Warn about known failures
+        - "production_approval": Require approval for production
+        - "data_retention": Enforce data retention policy
+        - "access_control": Restrict access by role
+
+        Args:
+            template: Template name
+            params: Template parameters
+
+        Returns:
+            Created rule
+        """
+        templates = {
+            "no_deploy_without_snapshot": {
+                "name": "no_deploy_without_snapshot",
+                "description": "Kein Deploy ohne Snapshot",
+                "condition": {
+                    "action_type": "deploy",
+                    "data_conditions": [
+                        {"field": "has_snapshot", "operator": "equals", "value": False}
+                    ]
+                },
+                "action": Action.BLOCK,
+                "severity": Severity.HIGH
+            },
+            "avoid_known_failures": {
+                "name": "avoid_known_failures",
+                "description": "Bekannten Fehler nicht erneut ausführen",
+                "condition": {
+                    "action_type": "retry",
+                    "data_conditions": [
+                        {"field": "known_failure", "operator": "equals", "value": True}
+                    ]
+                },
+                "action": Action.WARN,
+                "severity": Severity.MEDIUM
+            },
+            "production_approval": {
+                "name": "production_approval",
+                "description": "Require approval for production changes",
+                "condition": {
+                    "scope_pattern": ".*production.*",
+                    "action_type": "deploy"
+                },
+                "action": Action.REVIEW,
+                "severity": Severity.HIGH
+            },
+            "data_retention": {
+                "name": "data_retention",
+                "description": "Enforce minimum data retention period",
+                "condition": {
+                    "action_type": "delete",
+                    "data_conditions": [
+                        {"field": "retention_days", "operator": "less_than", "value": 90}
+                    ]
+                },
+                "action": Action.BLOCK,
+                "severity": Severity.CRITICAL
+            },
+            "access_control": {
+                "name": "access_control",
+                "description": "Restrict sensitive operations to authorized roles",
+                "condition": {
+                    "action_type": "delete",
+                    "data_conditions": [
+                        {"field": "actor_role", "operator": "not_equals", "value": "admin"}
+                    ]
+                },
+                "action": Action.BLOCK,
+                "severity": Severity.CRITICAL
+            }
+        }
+
+        if template not in templates:
+            raise ValueError(f"Unknown template: {template}")
+
+        template_data = templates[template]
+
+        # Override with params
+        name = params.get("name", template_data["name"])
+        scope = params.get("scope")
+        enabled = params.get("enabled", True)
+
+        rule_data = GovernanceRuleCreate(
+            name=name,
+            description=template_data["description"],
+            condition=template_data["condition"],
+            action=template_data["action"],
+            severity=template_data["severity"],
+            scope=scope,
+            enabled=enabled
+        )
+
+        return await self.create_rule(rule_data)
