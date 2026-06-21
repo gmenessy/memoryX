@@ -20,6 +20,7 @@ from app.api.frag import router as frag_router
 from app.api.evaluation import router as evaluation_router
 from app.api.swarm import router as swarm_router
 from app.api.gatekeeper import router as gatekeeper_router
+from app.api.dream import router as dream_router
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +75,7 @@ app.include_router(memory_router)
 app.include_router(evolution_router)
 app.include_router(governance_router)
 app.include_router(gatekeeper_router)
+app.include_router(dream_router)
 app.include_router(graph_router)
 app.include_router(frag_router)
 app.include_router(evaluation_router)
