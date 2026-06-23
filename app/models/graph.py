@@ -122,7 +122,8 @@ class GraphEdgeDB(Base):
     weight: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=1.0
+        default=1.0,
+        index=True  # Add index for weight-based queries
     )
     properties: Mapped[dict[str, Any]] = mapped_column(
         JSON,

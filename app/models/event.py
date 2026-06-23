@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
-from sqlalchemy import DateTime, JSON, String, Text
+from sqlalchemy import DateTime, JSON, String, Text, Index
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,7 +28,8 @@ class EventDB(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
-        nullable=False
+        nullable=False,
+        index=True  # Add index for time-based queries
     )
     event_type: Mapped[str] = mapped_column(
         String(100),
@@ -50,10 +51,18 @@ class EventDB(Base):
         nullable=False,
         default={}
     )
-    metadata: Mapped[dict[str, Any]] = mapped_column(
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",  # Column name remains 'metadata' in DB
         JSON,
         nullable=False,
         default={}
+    )
+
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('idx_event_scope_type', 'scope', 'event_type'),
+        Index('idx_event_actor_type', 'actor', 'event_type'),
+        Index('idx_event_timestamp_scope', 'timestamp', 'scope'),
     )
 
 

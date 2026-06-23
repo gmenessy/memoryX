@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from enum import Enum
 
 from pydantic import BaseModel, Field, validator
-from sqlalchemy import DateTime, Float, JSON, String, Text, Boolean
+from sqlalchemy import DateTime, Float, JSON, String, Text, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,16 +64,19 @@ class GovernanceRuleDB(Base):
     severity: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        default="medium"
+        default="medium",
+        index=True  # Add index for severity filtering
     )
     scope: Mapped[str] = mapped_column(
         String(255),
-        nullable=True
+        nullable=True,
+        index=True  # Add index for scope filtering
     )
     enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True
+        default=True,
+        index=True  # Add index for enabled filtering
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -85,6 +88,13 @@ class GovernanceRuleDB(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
         nullable=False
+    )
+
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('idx_governance_scope_enabled', 'scope', 'enabled'),
+        Index('idx_governance_enabled_severity', 'enabled', 'severity'),
+        Index('idx_governance_scope_action', 'scope', 'action'),
     )
 
 

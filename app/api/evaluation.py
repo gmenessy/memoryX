@@ -2,9 +2,11 @@
 Evaluation API Routes - REST Endpoints for Quality Metrics Operations
 """
 from uuid import UUID
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.database import get_db_session
 from app.models.evaluation import (
@@ -14,6 +16,12 @@ from app.models.evaluation import (
     METRIC_TYPES
 )
 from app.services.evaluation_service import EvaluationService
+
+
+class BenchmarkExecutionContext(BaseModel):
+    """Context for benchmark execution."""
+    benchmark_names: list[str] | None = None
+    context: dict[str, Any] | None = None
 
 router = APIRouter(prefix="/api/evaluation", tags=["Evaluation"])
 
@@ -60,8 +68,7 @@ async def get_evaluation_report(
 @router.post("/benchmark/{suite_name}", response_model=BenchmarkExecutionResult)
 async def execute_benchmark_suite(
     suite_name: str,
-    benchmark_names: list[str] | None = Query(None, description="Specific benchmarks"),
-    context: dict[str, object] | None = Query(None, description="Execution context"),
+    execution_context: BenchmarkExecutionContext = Body(None, description="Execution context"),
     session: AsyncSession = Depends(get_db_session)
 ) -> BenchmarkExecutionResult:
     """
@@ -79,8 +86,8 @@ async def execute_benchmark_suite(
         service = EvaluationService(session)
         return await service.execute_benchmark_suite(
             suite_name=suite_name,
-            benchmark_names=benchmark_names,
-            context=context
+            benchmark_names=execution_context.benchmark_names if execution_context else None,
+            context=execution_context.context if execution_context else None
         )
     except ValueError as e:
         raise HTTPException(

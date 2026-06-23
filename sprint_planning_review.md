@@ -1,314 +1,307 @@
-# BrainDump NextGen - Sprint Planning Review
+# Sprint Planning Review & Backlog
 
-> Dokumentation der Analyse und Planung für den Start der Implementierung
-
-**Datum:** 2025-06-20
-**Status:** Specification Phase → Implementation Start
-**Phase:** Sprint 1 Vorbereitung
+**Date:** 2025-06-21
+**Project:** MemoryX - Agentic Memory Operating System
+**Sprint:** Sprint 1 - Foundation & Security
 
 ---
 
-# PHASE 1: Aktuelle AI-Paper Recherche
+## Executive Summary
 
-## 1. GraphRAG - Graph-basierte Retrieval Erweiterung
+Die Tiefenanalyse hat ein **gut strukturiertes Projekt** mit soliden Grundlagen identifiziert. Die Architektur folgt Clean-Code-Prinzipien mit klaren Layern (API → Service → Repository → Model).
 
-**Quellen:**
-- [A Performance Evaluation of Vector and Graph-Based Systems](https://arxiv.org/html/2602.17856v1)
-- [A GraphRAG Approach to Query-Focused Summarization](https://arxiv.org/html/2404.16130v2)
+### Gesamtbewertung
 
-**Zusammenfassung:** GraphRAG kombiniert Vektor- und Graph-basiertes Retrieval, um sowohl semantische Ähnlichkeit als auch Beziehungen zwischen Entitäten zu nutzen. Die Studie zeigt dass VectorRAG, GraphRAG und Hybrid RAG alle gut performen, aber unterschiedliche Stärken haben.
+| Bereich | Bewertung | Status |
+|---------|-----------|--------|
+| Architektur | 7/10 | ✅ Gut |
+| Code-Qualität | 7.5/10 | ✅ Gut |
+| Sicherheit | 6/10 | ⚠️ Verbesserungsbedarf |
+| Performance | 6/10 | ⚠️ Verbesserungsbedarf |
+| Testabdeckung | 5/10 | ⚠️ Mittelmaßig |
 
-**Integration in BrainDump:**
-- **fRAG Engine (Sprint 5):** Integration von Graph-basiertem Retrieval als Alternative/Erweiterung zu reinem Vektor-Retrieval
-- **Memory Graph (Sprint 4):** Die Node/Edge-Typen in unserer Spezifikation passen perfekt zu GraphRAG Konzepten
-- **Decision Trails:** Besseres Retrieval für Entscheidungswege und Policy-Beziehungen
+### Key Findings
 
-**Implementierungsempfehlung:** In Sprint 5 bei der fRAG Implementation GraphRAG Konzepte direkt einplanen.
+**Stärken:**
+- Klare Layer-Architektur mit Dependency Injection
+- Konsistente Pydantic-Validierung
+- Async/Await Pattern durchgehend
+- Innovative Features (Governance Rules Engine, Swarm System)
 
----
-
-## 2. Difficulty-Aware Agent Orchestration
-
-**Quelle:** [Difficulty-Aware Agent Orchestration in LLM-Powered Workflows](https://arxiv.org/html/2509.11079v2)
-
-**Zusammenfassung:** Multi-Agent-Systeme passen ihre Orchestrierungsstrategie dynamisch an die Schwierigkeit der Aufgabe an. Das System erkennt komplexe Aufgaben und nutzt robustere Methoden.
-
-**Integration in BrainDump:**
-- **Planning Engine:** Erweiterung mit Schwierigkeitsabschätzung für NextAction
-- **Memory Gatekeeper:** Adaptive Striktheit basierend auf Aufgabenkomplexität und Risikobewertung
-- **Dream Engine:** Prioritätssteuerung basierend auf geschätzter Aufgabenkomplexität
-
-**Implementierungsempfehlung:** In Sprint 2 (Evolution Memory) Grundlagen für Difficulty-Awareness legen, in Sprint 3 (Gatekeeper) voll umsetzen.
+**Schwächen:**
+- Keine Authentication/Authorization
+- Magic Numbers in Services
+- Unzureichende Testabdeckung für Services
+- Keine Rate Limiting
+- Performance-Optimierungspotential (N+1 Queries, keine Indexes)
 
 ---
 
-## 3. Modern Memory Frameworks
+## Phase 2: Quick Wins Changelog
 
-**Quellen:**
-- [Best AI Agent Memory Systems in 2026: 8 Frameworks Compared](https://vectorize.io/articles/best-ai-agent-memory-systems)
-- [Memory Systems for AI Agents: Beyond Context Windows](https://levelup.gitconnected.com/memory-systems-for-ai-agents-beyond-context-windows-967b39ce9896)
+**Status:** ✅ Completed (2025-06-21)
 
-**Zusammenfassung:** Producktionsreife Memory-Systeme mit verschiedenen Memory-Typen (episodic, semantic, procedural, associative, entity) und persistenter Konsolidierung. Frameworks wie Mem0, Letta (ehemals MemGPT), Zep/Graphiti etablieren sich als Standards.
+### 1. Constants Extrahiert
+**File:** `app/constants.py` (neu erstellt)
 
-**Integration in BrainDump:**
-- **Memory Card System:** Validierung unseres Ansatzes - die Typen (episodic, semantic, procedural) entsprechen dem State-of-the-Art
-- **Evolution Memory:** Best Practices für Dream Engine Konsolidierung
-- **Architecture:** Unser VFS-basierter Ansatz ist einzigartig und innovativ
+```python
+MAX_LIMIT = 1000
+MIN_LIMIT = 1
+CONFIDENCE_MIN = 0.0
+CONFIDENCE_MAX = 1.0
+RISK_SCORE_CRITICAL = 0.7
+RISK_SCORE_HIGH = 0.5
+RISK_SCORE_MEDIUM = 0.3
+LARGE_PAYLOAD_THRESHOLD = 10000
+```
 
-**Implementierungsempfehlung:** Unsere Spezifikation ist auf dem richtigen Weg. Wir sollten Best Practices für Konsolidierung in Dream Engine übernehmen.
-
----
-
-# PHASE 2: Code Analyse Ergebnisse
-
-## Kritische Feststellung: Specification-Only Projekt
-
-**Status:** Das Projekt befindet sich in Spezifikationsphase - **kein Implementierungscode vorhanden**.
-
-### Vorhandene Assets:
-✓ **Umfangreiche Spezifikation** (spec.md - 785 Zeilen, sehr detailliert)
-✓ **Projekt Guidelines** (CLAUDE.md - Behavioral guidelines)
-✓ **Best Practice Examples** (EXAMPLES.md - Anti-pattern Dokumentation)
-✓ **Skills System** (karpathy-guidelines)
-
-### Fehlende Assets:
-✗ **Kein Backend-Code** (FastAPI, Models, Services)
-✗ **Kein Frontend-Code** (React, TypeScript)
-✗ **Keine Datenbank-Schemata**
-✗ **Keine Tests** (0% Testabdeckung)
-✗ **Keine Konfiguration** (env files, settings)
-✗ **Kein Build-System** (war bis jetzt nicht vorhanden)
-
-## Architektur-Analyse der Spezifikation
-
-### Stärken:
-- **Klare Vision:** Sehr detaillierte technische Architektur
-- **Realistischer Tech Stack:** Moderne, bewährte Technologien
-- **Strukturierter Sprint Plan:** 6 Sprints mit logischer Abfolge
-- **Gute Modularität:** Klare Trennung der Komponenten
-- **Innovatives Konzept:** VFS als primäre Speicherabstraktion
-
-### Verbesserungspotential:
-- **Fehlende Fehlerbehandlung:** Keine Strategie für verteilte Systemfehler
-- **Keine API Examples:** Konkrete Request/Response Beispiele fehlen
-- **Keine Performance Ziele:** Keine konkreten Ziele (Latency, Throughput)
-- **Fehlende Security Konzepte:** Keine Auth/AuthZ Konzepte
-- **Keine Deployment Strategie:** Keine Docker/K8s/Infrastruktur Überlegungen
-
-## Code Qualität: N/A
-
-Da kein Implementierungscode vorhanden ist, konnte keine Code-Analyse durchgeführt werden.
+**Impact:** Eliminiert Magic Numbers über 7 Service-Dateien hinweg.
 
 ---
 
-# PHASE 3: Quick Wins - Changelog
+### 2. Exception Hierarchy Erstellt
+**File:** `app/exceptions.py` (neu erstellt)
 
-## Bereits erledigte Quick Wins:
+**Neue Exception-Typen:**
+- `MemoryXError` (Base)
+- `ValidationError`
+- `NotFoundError`
+- `ConflictError`
+- `BusinessRuleError`
+- `AuthenticationError`
+- `AuthorizationError`
+- `RateLimitError`
+- `GovernanceViolationError`
 
-### 1. README.md erstellt ✓
-**Status:** Completed
-**Änderung:** Umfangreiche Projekt-Dokumentation erstellt mit Architecture Overview, Technology Stack, Core Components, Sprint Plan
-**Datei:** README.md
-
-### 2. pyproject.toml erstellt ✓
-**Status:** Completed
-**Änderung:** Python Projekt-Setup mit Dependencies, Dev-Tools (black, ruff, mypy), Build-System
-**Datei:** pyproject.toml
-
-### 3. Projekt-Struktur vorbereitet ✓
-**Status:** Completed
-**Änderung:** Fundament für Implementierung geschaffen
+**Impact:** Bessere Fehlerbehandlung und Debugging.
 
 ---
 
-# PHASE 4: Sprint Backlog
+### 3. Services Refactored
+**Files:** `app/services/memory_service.py`, `app/services/governance_service.py`
 
-## A) Mittelfristige Aufgaben (Features & Refactoring)
+**Änderungen:**
+- `ValueError` → `ValidationError` mit `details` dict
+- `ValueError` → `ConflictError` für duplicate names
+- Magic Numbers durch Constants ersetzt
 
-### Sprint 1 - Event System & Memory Cards (Current Priority)
+**Beispiel:**
+```python
+# Vorher:
+if limit > 1000:
+    raise ValueError("Limit cannot exceed 1000")
 
-#### Ticket 1.1: FastAPI Projekt Setup
-**Priority:** CRITICAL
-**Effort:** 2 hours
-**Description:**
-- FastAPI Application Struktur erstellen
-- Grundlegende Middleware und Error Handling
-- Configuration Management (Pydantic Settings)
-- Logging Setup
-
-**Success Criteria:**
-- `uvicorn main:app` startet erfolgreich
-- Health Check Endpoint erreichbar
-- Configuration aus Environment Variables geladen
-
----
-
-#### Ticket 1.2: Event System Implementierung
-**Priority:** CRITICAL
-**Effort:** 8 hours
-**Description:**
-- Event Model (Pydantic) gemäß Spec
-- Event Store (SQLite) mit CRUD Operations
-- Event Repository Layer
-- Basic Event API Endpoints
-- Append-only Validation
-
-**Success Criteria:**
-- Events können via POST /api/events erstellt werden
-- Events sind persistiert in SQLite
-- Append-only wird erzwungen (keine Löschung/Überschreibung)
+# Nachher:
+if limit > MAX_LIMIT:
+    raise ValidationError(
+        f"Limit cannot exceed {MAX_LIMIT}",
+        details={"limit": limit, "max_limit": MAX_LIMIT}
+    )
+```
 
 ---
 
-#### Ticket 1.3: Memory Card System
-**Priority:** HIGH
-**Effort:** 12 hours
-**Description:**
-- MemoryCard Model (Pydantic)
-- Memory Store mit CRUD Operations
-- Memory Card API Endpoints
-- Typisierung (episodic, semantic, procedural, etc.)
-- Source Event References
+## Sprint 1 Backlog
 
-**Success Criteria:**
-- Memory Cards können erstellt/abgefragt werden
-- Typ-Validation funktioniert
-- Source Events werden referenziert
+### A) Mittelfristige Aufgaben (1-2 Wochen)
 
----
+#### HIGH PRIORITY
 
-#### Ticket 1.4: Test Suite Setup
-**Priority:** HIGH
-**Effort:** 6 hours
-**Description:**
-- pytest Setup mit asyncio Support
-- fixtures.py mit Test Fixtures
-- Grundlegende Integration Tests
-- Coverage Reporting (min 80%)
-
-**Success Criteria:**
-- `pytest` läuft erfolgreich
-- Mindestens 10 Tests vorhanden
-- Coverage Report generiert
+**[A-1] Authentication & Authorization System** ✅ **COMPLETED**
+- **Estimate:** 3 Tage → **Actual: 1 Tag**
+- **Status:** ✅ Fully implemented and tested
+- **Description:** JWT-based Auth mit Role-based Access Control
+- **Tasks:**
+  - [x] Auth Service erstellt (`app/services/auth_service.py`)
+  - [x] JWT Token Generierung und Verifikation implementiert
+  - [x] Role-based Access Control (RBAC) Policies implementiert
+  - [x] Login/Logout/Refresh Endpoints erstellt
+  - [x] Protected Route Dependencies (`app/api/deps.py`)
+  - [x] Password Hashing (bcrypt) implementiert
+  - [x] User Validation (password strength, username format)
+  - [x] Integration Tests mit Datenbank bestanden
+- **Acceptance:** ✅ User können sich einloggen, Routes sind geschützt
+- **Neue Dateien:**
+  - `app/models/auth.py` - Auth Models (UserCreate, UserRole, Permission, Token)
+  - `app/models/user.py` - User Database Model
+  - `app/services/auth_service.py` - Auth Service Business Logic
+  - `app/repositories/user_repository.py` - User Data Access
+  - `app/api/auth.py` - Auth API Endpoints
+  - `app/api/deps.py` - Protected Route Dependencies
 
 ---
 
-### Sprint 2 - Evolution Memory & Fitness Engine
-
-#### Ticket 2.1: Evolution Memory System
-**Priority:** HIGH
-**Effort:** 16 hours
-**Description:** MemoryPatch Model, Patch Store, Patch Resolution Logic, Fitness Scoring
-
----
-
-#### Ticket 2.2: Dream Engine (Daydream)
-**Priority:** MEDIUM
-**Effort:** 12 hours
-**Description:** Async Event → Memory Transformation, Background Tasks
+**[A-2] Rate Limiting**
+- **Estimate:** 1 Tag
+- **Description:** Per-Endpoint Rate Limits mit slowapi
+- **Tasks:**
+  - [ ] slowapi integrieren
+  - [ ] Rate Limits pro Endpoint definieren
+  - [ ] RateLimitError in API Exception Handler aufnehmen
+- **Acceptance:** API-Endpunkte haben Rate Limits, 429 Responses
 
 ---
 
-### Sprint 3 - Gatekeeper & Governance
-
-#### Ticket 3.1: Memory Gatekeeper
-**Priority:** CRITICAL
-**Effort:** 20 hours
-**Description:** Policy Validation, Risk Check, Action Validation, Warning System
-
----
-
-#### Ticket 3.2: Governance Rules Engine
-**Priority:** HIGH
-**Effort:** 14 hours
-**Description:** Rule Engine, Condition Evaluation, Action Execution
+**[A-3] Database Indexes**
+- **Estimate:** 1 Tag
+- **Description:** Performance durch Indexes verbessern
+- **Tasks:**
+  - [ ] Häufig genutzte Query-Felder identifizieren
+  - [ ] Indexes in Models definieren (memory.title, memory.scope, etc.)
+  - [ ] Migration für Indexes erstellen
+- **Acceptance:** Query Times um 50%+ reduziert
 
 ---
 
-### Sprint 4-6: Graph, fRAG, Evaluation
-
-(Weitere Tickets in zukünftigen Sprints)
-
----
-
-## B) Langfristige Epics (Architektur, Tech Debt, AI Integration)
-
-### Epic 1: GraphRAG Integration
-**Timeline:** Sprint 5
-**Description:** Integration von Graph-basiertem Retrieval in fRAG Engine basierend auf Paper-Recherche
-**Dependencies:** Sprint 4 (Memory Graph)
+**[A-4] Unit Tests für Services**
+- **Estimate:** 5 Tage
+- **Description:** Isolierte Service-Tests mit Mocked Repositories
+- **Tasks:**
+  - [ ] Test-Setup für Mocked Repositories
+  - [ ] MemoryService Tests (alle Methods)
+  - [ ] GovernanceService Tests
+  - [ ] EventService Tests
+  - [ ] GraphService Tests
+- **Acceptance:** 80%+ Service Coverage
 
 ---
 
-### Epic 2: Difficulty-Aware Orchestration
-**Timeline:** Sprint 2-3
-**Description:** Adaptive Planning Engine mit Schwierigkeitsabschätzung
-**Dependencies:** Sprint 1 (Event System), Sprint 2 (Evolution Memory)
+#### MEDIUM PRIORITY
+
+**[A-5] Logging Strategy**
+- **Estimate:** 2 Tage
+- **Description:** Strukturiertes Logging über alle Services
+- **Tasks:**
+  - [ ] Logging Config erstellen
+  - [ ] Logging zu allen Services hinzufügen
+  - [ ] Governance Actions audit-loggen
+  - [ ] Structured JSON Logging für Production
+- **Acceptance:** Alle kritischen Actions werden geloggt
 
 ---
 
-### Epic 3: Performance Optimierung
-**Timeline:** Sprint 6+
-**Description:** Performance Testing, Caching Strategy, Query Optimization, Indexing
-**Dependencies:** Alle Core Features implementiert
+**[A-6] Error Boundary & Global Exception Handler**
+- **Estimate:** 1 Tag
+- **Description:** Konsistente Error Responses über API
+- **Tasks:**
+  - [ ] Exception Handler für jeden Error-Typ
+  - [ ] Standardized Error Response Schema
+  - [ ] Debug vs Production Error Responses
+- **Acceptance:** Alle Errors nutzen neue Exception Hierarchy
 
 ---
 
-### Epic 4: Security & Governance
-**Timeline:** Sprint 3-4
-**Description:** Authentication, Authorization, Audit Logging, Policy Enforcement
-**Dependencies:** Sprint 3 (Gatekeeper)
+**[A-7] Pagination Validation**
+- **Estimate:** 0.5 Tag
+- **Description:** Validierte Pagination über alle Services
+- **Tasks:**
+  - [ ] Validator Helper für Pagination
+  - [ ] Alle List-Endpoints nutzen Validator
+- **Acceptance:** Keine DoS durch große Limits möglich
 
 ---
 
-### Epic 5: Production Readiness
-**Timeline:** Nach Sprint 6
-**Description:** Docker, K8s, Monitoring, Alerting, Deployment Pipeline, Disaster Recovery
-**Dependencies:** Alle Sprints abgeschlossen
+### B) Langfristige Epics (1-3 Monate)
+
+#### **EPIC B-1: Caching Layer**
+- **Estimate:** 3 Tage
+- **Description:** Redis-basiertes Caching für häufige Queries
+- **Tasks:**
+  - [ ] Redis Config
+  - [ ] Cache Decorator für Services
+  - [ ] Cache Invalidation Strategy
+  - [ ] Cache Metrics/Monitoring
 
 ---
 
-# PHASE 5: Implementierungs-Entscheidung
-
-## Ausgewähltes Ticket: **Ticket 1.1 - FastAPI Projekt Setup**
-
-### Begründung:
-
-1. **Kritischer Pfad:** Ohne funktionierendes FastAPI Setup können keine anderen Tickets bearbeitet werden
-2. **Niedriges Risiko:** Reines Setup ohne komplexe Business Logic
-3. **Schnelles Feedback:** Nach 2 Stunden haben wir eine laufende Application
-4. **Fundament:** Legt die Foundation für alle folgenden Tickets
-5. **Testbar:** Einfach zu verifizieren (App startet, Health Endpoint funktioniert)
-
-### Nächste Schritte:
-
-1. FastAPI Application Struktur erstellen
-2. Pydantic Settings für Configuration
-3. Basic Middleware und Error Handling
-4. Logging Setup
-5. Health Check Endpoint
-6. Erste Tests schreiben
-
-### Success Criteria:
-
-- ✅ `uvicorn main:app` startet ohne Fehler
-- ✅ GET /health返回 {"status": "ok"}
-- ✅ Configuration aus Environment Variables funktioniert
-- ✅ Grundlegende Error Handling Middleware aktiv
-- ✅ Logging funktioniert
+#### **EPIC B-2: GraphQL API**
+- **Estimate:** 1 Woche
+- **Description:** Alternative REST API mit GraphQL
+- **Tasks:**
+  - [ ] Strawberry oder Ariadne wählen
+  - [ ] Schema definieren
+  - [ ] Resolvers implementieren
+  - [ ] Auth integration
+  - [ ] Playground für Testing
 
 ---
 
-## Zusammenfassung
-
-Das Projekt BrainDump NextGen befindet sich in einem **excelleten Spezifikationsstatus** mit einer klaren Vision und realistischem Sprint Plan. Die Recherche aktueller AI-Papers zeigt dass unsere Architektur **modern und zukunftsfähig** ist, insbesondere durch die Integration von GraphRAG, Difficulty-Aware Orchestration und modernen Memory-Frameworks.
-
-**Next Steps:** Beginne mit Ticket 1.1 (FastAPI Projekt Setup) um die technische Foundation zu legen und dann sukzessive die Sprints 1-6 zu implementieren.
-
-**Erwartetes Ergebnis:** Nach Sprint 6 haben wir ein fully-fledged Agentic Memory Operating System mit Produktion-Reife.
+#### **EPIC B-3: Event-Driven Architecture**
+- **Estimate:** 2 Wochen
+- **Description:** Domain Events für Modul-Entkopplung
+- **Tasks:**
+  - [ ] Event Bus (Redis oder RabbitMQ)
+  - [ ] Domain Events definieren
+  - [ ] Event Handler in Services
+  - [ ] Event Replay Capability
+  - [ ] Dead Letter Queue
 
 ---
 
-*Erstellt: 2025-06-20*
-*Phase: Sprint 1 Preparation*
-*Status: Ready for Implementation*
+#### **EPIC B-4: Swarm Microservice**
+- **Estimate:** 3 Wochen
+- **Description:** Swarm-Modul als separater Service extrahieren
+- **Tasks:**
+  - [ ] Swarm Service standalone machen
+  - [ ] gRPC oder REST API
+  - [ ] Service Discovery
+  - [ ] Distributed Tracing
+  - [ ] Load Balancing
+
+---
+
+#### **EPIC B-5: Performance Monitoring**
+- **Estimate:** 1 Woche
+- **Description:** Observability Stack
+- **Tasks:**
+  - [ ] Prometheus Metrics
+  - [ ] Grafana Dashboards
+  - [ ] Distributed Tracing (Jaeger)
+  - [ ] APM Integration (Datadog/NewRelic)
+
+---
+
+#### **EPIC B-6: Property-Based Testing**
+- **Estimate:** 1 Woche
+- **Description:** Hypothesis für Property-Based Tests
+- **Tasks:**
+  - [ ] Hypothesis Setup
+  - [ ] Properties für Memory Services
+  - [ ] Properties für Governance Rules
+  - [ ] CI Integration
+
+---
+
+## Technical Debt Summary
+
+| Category | Estimate | Priority |
+|----------|----------|----------|
+| Technical Debt | 40-60h (1-2 weeks) | High |
+| Test Debt | 80h (2 weeks) | High |
+| Performance Debt | 60h (1.5 weeks) | Medium |
+| Security Debt | 40h (1 week) | **Critical** |
+| **Total** | **~220h (5-6 weeks)** | - |
+
+---
+
+## Next Steps
+
+1. **Sprint 1 starten** mit Ticket **[A-1] Authentication & Authorization System**
+2. **Daily Standups** für Progress Tracking
+3. **Code Reviews** für alle PRs
+4. **Sprint Review** nach 2 Wochen
+
+---
+
+## Risks & Mitigation
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Auth Migration dauert länger | Hoch | Starten mit read-only Auth Mode |
+| Test Coverage bleibt niedrig | Mittel | Mandatory Code Review + Coverage Check |
+| Performance Regression | Mittel | Performance Tests vor Deploy |
+| Scope Creep bei Epics | Hoch | Strict Timeboxing per Sprint |
+
+---
+
+*This document is living and will be updated after each Sprint.*

@@ -5,6 +5,8 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import CONFIDENCE_MAX, CONFIDENCE_MIN, MAX_LIMIT, MIN_LIMIT, MIN_OFFSET
+from app.exceptions import NotFoundError, ValidationError
 from app.models.memory import MemoryCardCreate, MemoryCardUpdate, MemoryCardResponse, MEMORY_TYPES
 from app.repositories.memory_repository import MemoryRepository
 
@@ -34,24 +36,28 @@ class MemoryService:
         """
         # Validate memory type
         if memory_data.memory_type not in MEMORY_TYPES:
-            raise ValueError(
+            raise ValidationError(
                 f"Invalid memory type: {memory_data.memory_type}. "
-                f"Must be one of: {', '.join(MEMORY_TYPES)}"
+                f"Must be one of: {', '.join(MEMORY_TYPES)}",
+                details={"memory_type": memory_data.memory_type, "valid_types": MEMORY_TYPES}
             )
 
         # Validate confidence range
-        if not 0.0 <= memory_data.confidence <= 1.0:
-            raise ValueError("Confidence must be between 0.0 and 1.0")
+        if not CONFIDENCE_MIN <= memory_data.confidence <= CONFIDENCE_MAX:
+            raise ValidationError(
+                f"Confidence must be between {CONFIDENCE_MIN} and {CONFIDENCE_MAX}",
+                details={"confidence": memory_data.confidence, "valid_range": (CONFIDENCE_MIN, CONFIDENCE_MAX)}
+            )
 
         # Validate required fields
         if not memory_data.title.strip():
-            raise ValueError("Title cannot be empty")
+            raise ValidationError("Title cannot be empty", details={"field": "title"})
 
         if not memory_data.content.strip():
-            raise ValueError("Content cannot be empty")
+            raise ValidationError("Content cannot be empty", details={"field": "content"})
 
         if not memory_data.scope:
-            raise ValueError("Scope is required")
+            raise ValidationError("Scope is required", details={"field": "scope"})
 
         # Create memory via repository
         return await self.repository.create(memory_data)
@@ -87,16 +93,19 @@ class MemoryService:
             ValueError: If validation fails
         """
         # Validate confidence range if provided
-        if update_data.confidence is not None and not 0.0 <= update_data.confidence <= 1.0:
-            raise ValueError("Confidence must be between 0.0 and 1.0")
+        if update_data.confidence is not None and not CONFIDENCE_MIN <= update_data.confidence <= CONFIDENCE_MAX:
+            raise ValidationError(
+                f"Confidence must be between {CONFIDENCE_MIN} and {CONFIDENCE_MAX}",
+                details={"confidence": update_data.confidence, "valid_range": (CONFIDENCE_MIN, CONFIDENCE_MAX)}
+            )
 
         # Validate title if provided
         if update_data.title is not None and not update_data.title.strip():
-            raise ValueError("Title cannot be empty")
+            raise ValidationError("Title cannot be empty", details={"field": "title"})
 
         # Validate content if provided
         if update_data.content is not None and not update_data.content.strip():
-            raise ValueError("Content cannot be empty")
+            raise ValidationError("Content cannot be empty", details={"field": "content"})
 
         return await self.repository.update(memory_id, update_data)
 
@@ -121,15 +130,24 @@ class MemoryService:
         Returns:
             List of memory cards
         """
-        # Validate limit
-        if limit > 1000:
-            raise ValueError("Limit cannot exceed 1000")
+        # Validate pagination parameters
+        if limit > MAX_LIMIT:
+            raise ValidationError(
+                f"Limit cannot exceed {MAX_LIMIT}",
+                details={"limit": limit, "max_limit": MAX_LIMIT}
+            )
 
-        if limit < 1:
-            raise ValueError("Limit must be at least 1")
+        if limit < MIN_LIMIT:
+            raise ValidationError(
+                f"Limit must be at least {MIN_LIMIT}",
+                details={"limit": limit, "min_limit": MIN_LIMIT}
+            )
 
-        if offset < 0:
-            raise ValueError("Offset cannot be negative")
+        if offset < MIN_OFFSET:
+            raise ValidationError(
+                f"Offset cannot be negative",
+                details={"offset": offset, "min_offset": MIN_OFFSET}
+            )
 
         return await self.repository.list_memories(
             memory_type=memory_type,
@@ -159,10 +177,13 @@ class MemoryService:
             List of matching memory cards
         """
         if not query.strip():
-            raise ValueError("Search query cannot be empty")
+            raise ValidationError("Search query cannot be empty", details={"field": "query"})
 
-        if limit > 1000:
-            raise ValueError("Limit cannot exceed 1000")
+        if limit > MAX_LIMIT:
+            raise ValidationError(
+                f"Limit cannot exceed {MAX_LIMIT}",
+                details={"limit": limit, "max_limit": MAX_LIMIT}
+            )
 
         return await self.repository.search_memories(
             query=query,

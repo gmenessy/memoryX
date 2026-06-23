@@ -6,8 +6,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, validator
-from sqlalchemy import DateTime, Float, JSON, String, Text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
+from sqlalchemy import DateTime, Float, JSON, String, Text, Index
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -41,7 +42,8 @@ class MemoryCardDB(Base):
     confidence: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=0.5
+        default=0.5,
+        index=True  # Add index for confidence range queries
     )
     scope: Mapped[str] = mapped_column(
         String(255),
@@ -49,20 +51,28 @@ class MemoryCardDB(Base):
         index=True
     )
     source_events: Mapped[list[UUID]] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True)),
+        JSON,  # SQLite doesn't support ARRAY, use JSON instead
         nullable=False,
         default=[]
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
-        nullable=False
+        nullable=False,
+        index=True  # Add index for time-based sorting/filtering
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
         nullable=False
+    )
+
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('idx_memory_scope_type', 'scope', 'memory_type'),
+        Index('idx_memory_scope_confidence', 'scope', 'confidence'),
+        Index('idx_memory_created_scope', 'created_at', 'scope'),
     )
 
 

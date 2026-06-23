@@ -10,14 +10,21 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import (
+    LARGE_PAYLOAD_THRESHOLD,
+    RISK_SCORE_CRITICAL,
+    RISK_SCORE_HIGH,
+    RISK_SCORE_MEDIUM,
+)
+from app.exceptions import ConflictError, ValidationError
 from app.models.governance import (
+    Action,
     GovernanceRuleCreate,
-    GovernanceRuleUpdate,
     GovernanceRuleResponse,
+    GovernanceRuleUpdate,
     GatekeeperCheckRequest,
     GatekeeperCheckResponse,
     RiskAssessment,
-    Action,
     Severity,
 )
 from app.repositories.governance_repository import GovernanceRepository
@@ -40,7 +47,10 @@ class GovernanceService:
         # Check if rule name already exists
         existing = await self.repo.get_rule_by_name(rule_data.name)
         if existing:
-            raise ValueError(f"Rule with name '{rule_data.name}' already exists")
+            raise ConflictError(
+                f"Rule with name '{rule_data.name}' already exists",
+                details={"rule_name": rule_data.name, "existing_rule_id": str(existing.rule_id)}
+            )
 
         return await self.repo.create_rule(rule_data)
 
@@ -356,7 +366,7 @@ class GovernanceService:
         # Risk from target data size
         if request.target_data:
             data_size = len(str(request.target_data))
-            if data_size > 10000:  # Large payload
+            if data_size > LARGE_PAYLOAD_THRESHOLD:  # Large payload
                 risk_score += 0.05
                 risk_factors.append({
                     "type": "data_size",
@@ -367,12 +377,12 @@ class GovernanceService:
         # Normalize risk score
         risk_score = min(risk_score, 1.0)
 
-        # Determine severity level
-        if risk_score >= 0.7:
+        # Determine severity level based on constants
+        if risk_score >= RISK_SCORE_CRITICAL:
             severity = Severity.CRITICAL
-        elif risk_score >= 0.5:
+        elif risk_score >= RISK_SCORE_HIGH:
             severity = Severity.HIGH
-        elif risk_score >= 0.3:
+        elif risk_score >= RISK_SCORE_MEDIUM:
             severity = Severity.MEDIUM
         else:
             severity = Severity.LOW

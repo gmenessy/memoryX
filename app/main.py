@@ -21,6 +21,8 @@ from app.api.evaluation import router as evaluation_router
 from app.api.swarm import router as swarm_router
 from app.api.gatekeeper import router as gatekeeper_router
 from app.api.dream import router as dream_router
+from app.api.auth import router as auth_router
+from app.api.rate_limit import limiter
 
 # Configure logging
 logging.basicConfig(
@@ -59,6 +61,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Apply rate limiter to the app
+app.state.limiter = limiter
+
 
 # CORS Middleware
 app.add_middleware(
@@ -70,6 +75,7 @@ app.add_middleware(
 )
 
 # Include API Routers
+app.include_router(auth_router)  # Must be first for authentication
 app.include_router(events_router)
 app.include_router(memory_router)
 app.include_router(evolution_router)
@@ -85,6 +91,36 @@ app.include_router(swarm_router)
 # Exception Handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Global exception handler for unhandled exceptions.
+    """
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "Internal Server Error",
+            "message": str(exc) if settings.debug else "An unexpected error occurred"
+        }
+    )
+
+
+@app.exception_handler(status.HTTP_429_TOO_MANY_REQUESTS)
+async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Rate limit exceeded handler.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error": "Rate limit exceeded",
+            "message": "Too many requests. Please try again later.",
+            "retry_after": getattr(exc, "retry_after", 60)
+        },
+        headers={
+            "Retry-After": str(getattr(exc, "retry_after", 60))
+        }
+    )
     """
     Global exception handler for unhandled exceptions.
     """

@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Boolean, Float, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -71,7 +71,8 @@ class PromptDB(Base):
         nullable=False,
         default=list
     )
-    metadata: Mapped[dict[str, Any]] = mapped_column(
+    prompt_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",  # Column name remains 'metadata' in DB
         JSONB,
         nullable=False,
         default=dict

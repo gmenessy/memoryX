@@ -23,6 +23,12 @@ class Settings(BaseSettings):
         description="Database connection URL"
     )
 
+    # Security
+    secret_key: str = Field(
+        default="dev-secret-key-change-in-production",
+        description="Secret key for JWT token signing"
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
 

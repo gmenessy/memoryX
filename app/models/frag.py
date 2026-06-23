@@ -57,7 +57,7 @@ class RetrievalResult(BaseModel):
     query: str = Field(..., description="Original query")
     fragments: list[RetrievedFragment] = Field(default_factory=list, description="Retrieved fragments")
     total_fragments: int = Field(default=0, description="Total fragments found")
-        retrieval_method: str = Field(..., description="Method used for retrieval")
+    retrieval_method: str = Field(..., description="Method used for retrieval")
     query_time_ms: float = Field(default=0.0, description="Query execution time in milliseconds")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 

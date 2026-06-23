@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from enum import Enum
 
 from pydantic import BaseModel, Field, validator
-from sqlalchemy import DateTime, Float, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
