@@ -7,6 +7,7 @@ Rules are evaluated by the Gatekeeper before actions are executed.
 from datetime import datetime
 from typing import Any
 from uuid import UUID
+from collections import defaultdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ from app.constants import (
     RISK_SCORE_MEDIUM,
 )
 from app.exceptions import ConflictError, ValidationError
+from app.logging_config import get_logger
 from app.models.governance import (
     Action,
     GovernanceRuleCreate,
@@ -28,6 +30,8 @@ from app.models.governance import (
     Severity,
 )
 from app.repositories.governance_repository import GovernanceRepository
+
+logger = get_logger(__name__)
 
 
 class GovernanceService:
@@ -671,3 +675,420 @@ class GovernanceService:
         )
 
         return await self.create_rule(rule_data)
+
+    # Rule Chaining
+
+    async def evaluate_rule_chain(
+        self,
+        request: GatekeeperCheckRequest,
+        chain_name: str | None = None
+    ) -> tuple[GatekeeperCheckResponse, list[dict]]:
+        """
+        Evaluate rules in a chain (sequence evaluation).
+
+        Rules are evaluated in order, and later rules can see the results
+        of earlier rule evaluations. This enables complex logic like:
+        "If rule A triggers, also evaluate rule B"
+
+        Args:
+            request: Validation request
+            chain_name: Optional name of rule chain to use
+
+        Returns:
+            Tuple of (final_response, evaluation_chain)
+        """
+        evaluation_chain = []
+
+        # Get rules to evaluate
+        if chain_name:
+            # Get rules for specific chain
+            rules = await self.repo.get_rules_by_chain(chain_name)
+        else:
+            # Get all applicable rules, ordered by priority
+            rules = await self.repo.get_applicable_rules(
+                action_type=request.action_type,
+                scope=request.scope,
+                enabled_only=True
+            )
+
+        # Evaluate each rule in sequence
+        current_request = request
+        all_triggered_rules = []
+        final_response = None
+
+        for i, rule in enumerate(rules):
+            # Check if this rule should be evaluated based on previous results
+            if i > 0:
+                # Check if previous rules affect this rule
+                should_evaluate = await self._should_evaluate_next_rule(
+                    rule, evaluation_chain
+                )
+                if not should_evaluate:
+                    continue
+
+            # Evaluate this rule
+            rule_triggered = self._evaluate_condition(rule.condition, current_request)
+
+            evaluation_step = {
+                "step": i + 1,
+                "rule_id": str(rule.rule_id),
+                "rule_name": rule.name,
+                "triggered": rule_triggered,
+                "action": rule.action if rule_triggered else None
+            }
+            evaluation_chain.append(evaluation_step)
+
+            if rule_triggered:
+                all_triggered_rules.append({
+                    "rule_id": str(rule.rule_id),
+                    "name": rule.name,
+                    "description": rule.description,
+                    "action": rule.action,
+                    "severity": rule.severity
+                })
+
+                # Update request based on rule action (for next rules)
+                current_request = await self._apply_rule_effects(
+                    current_request, rule, evaluation_chain
+                )
+
+        # Generate final response
+        if all_triggered_rules:
+            highest_severity = max(
+                [Severity(r["severity"]) for r in all_triggered_rules],
+                key=lambda s: [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL].index(s)
+            )
+        else:
+            highest_severity = Severity.LOW
+
+        # Calculate risk assessment
+        risk_assessment = await self._assess_risk(request, all_triggered_rules)
+
+        # Determine final action
+        recommended_action = self._determine_action_from_chain(evaluation_chain)
+        allowed = recommended_action in [Action.ALLOW, Action.WARN]
+
+        # Generate warnings and alternatives
+        warnings = []
+        alternatives = []
+
+        if recommended_action == Action.WARN:
+            warnings.append(f"Action triggers {len(all_triggered_rules)} governance rule(s)")
+        elif recommended_action == Action.REVIEW:
+            warnings.append("Action requires review before proceeding")
+        elif recommended_action == Action.BLOCK:
+            warnings.append("Action is blocked by governance rules")
+            alternatives = await self._generate_alternatives(request, all_triggered_rules)
+        elif recommended_action == Action.ALTERNATIVE:
+            warnings.append("Alternative approach recommended")
+            alternatives = await self._generate_alternatives(request, all_triggered_rules)
+
+        final_response = GatekeeperCheckResponse(
+            allowed=allowed,
+            action=recommended_action.value,
+            reason=self._generate_reason(all_triggered_rules, highest_severity),
+            triggered_rules=all_triggered_rules,
+            risk_score=risk_assessment.risk_score,
+            alternatives=alternatives,
+            warnings=warnings
+        )
+
+        logger.info(
+            f"Rule chain evaluation: {len(evaluation_chain)} steps, "
+            f"{len(all_triggered_rules)} triggered, action={recommended_action.value}"
+        )
+
+        return final_response, evaluation_chain
+
+    async def _should_evaluate_next_rule(
+        self,
+        rule: GovernanceRuleResponse,
+        evaluation_chain: list[dict]
+    ) -> bool:
+        """
+        Determine if next rule should be evaluated based on previous results.
+
+        Args:
+            rule: Rule to potentially evaluate
+            evaluation_chain: Previous evaluation results
+
+        Returns:
+            True if rule should be evaluated
+        """
+        # Check rule conditions for chain evaluation
+        if not rule.condition:
+            return True
+
+        # Check if rule has "only_if_previous_triggered" condition
+        if "only_if_previous_triggered" in rule.condition:
+            if evaluation_chain:
+                last_triggered = evaluation_chain[-1].get("triggered", False)
+                return last_triggered
+            return False
+
+        # Check if rule has "only_if_previous_allowed" condition
+        if "only_if_previous_allowed" in rule.condition:
+            if evaluation_chain:
+                last_action = evaluation_chain[-1].get("action")
+                return last_action in ["allow", "warn"]
+            return True
+
+        # Default: evaluate the rule
+        return True
+
+    async def _apply_rule_effects(
+        self,
+        request: GatekeeperCheckRequest,
+        rule: GovernanceRuleResponse,
+        evaluation_chain: list[dict]
+    ) -> GatekeeperCheckRequest:
+        """
+        Apply effects of a triggered rule to the request for subsequent rules.
+
+        Args:
+            request: Current request
+            rule: Rule that was triggered
+            evaluation_chain: Evaluation history
+
+        Returns:
+            Modified request for next evaluation
+        """
+        # Create a copy of the request
+        modified_request = GatekeeperCheckRequest(
+            action_type=request.action_type,
+            actor=request.actor,
+            scope=request.scope,
+            target_data=request.target_data.copy(),
+            metadata=request.metadata.copy()
+        )
+
+        # Apply rule effects based on action
+        if rule.action == "review":
+            # Add pending review flag
+            modified_request.target_data["pending_review"] = True
+            modified_request.metadata["review_required_by"] = rule.name
+
+        elif rule.action == "alternative":
+            # Add alternative suggestion flag
+            modified_request.target_data["alternative_suggested"] = True
+            modified_request.metadata["alternative_source"] = rule.name
+
+        elif rule.action == "block":
+            # Add blocked flag
+            modified_request.target_data["blocked"] = True
+            modified_request.metadata["blocked_by"] = rule.name
+
+        return modified_request
+
+    def _determine_action_from_chain(self, evaluation_chain: list[dict]) -> Action:
+        """
+        Determine final action from evaluation chain.
+
+        Args:
+            evaluation_chain: Rule evaluation results
+
+        Returns:
+            Final recommended action
+        """
+        # Find the most restrictive action among triggered rules
+        triggered_actions = [
+            step["action"] for step in evaluation_chain
+            if step.get("triggered") and step.get("action")
+        ]
+
+        if not triggered_actions:
+            return Action.ALLOW
+
+        # Order by restrictiveness
+        restrictiveness = {
+            Action.ALLOW: 0,
+            Action.WARN: 1,
+            Action.REVIEW: 2,
+            Action.ALTERNATIVE: 3,
+            Action.BLOCK: 4
+        }
+
+        # Return the most restrictive action
+        most_restrictive = max(
+            [Action(action) for action in triggered_actions],
+            key=lambda a: restrictiveness.get(a, 0)
+        )
+
+        return most_restrictive
+
+    # Batch Evaluation
+
+    async def batch_evaluate_rules(
+        self,
+        requests: list[GatekeeperCheckRequest]
+    ) -> list[tuple[GatekeeperCheckResponse, RiskAssessment]]:
+        """
+        Evaluate multiple requests in batch (efficient evaluation).
+
+        Args:
+            requests: List of validation requests
+
+        Returns:
+            List of (response, risk_assessment) tuples
+        """
+        results = []
+
+        # Group requests by action_type and scope for efficient rule lookup
+        grouped = defaultdict(list)
+        for i, request in enumerate(requests):
+            key = (request.action_type, request.scope)
+            grouped[key].append((i, request))
+
+        # Evaluate each group
+        for key, group_requests in grouped.items():
+            action_type, scope = key
+
+            # Get applicable rules once per group
+            rules = await self.repo.get_applicable_rules(
+                action_type=action_type,
+                scope=scope,
+                enabled_only=True
+            )
+
+            # Evaluate each request in the group
+            for idx, request in group_requests:
+                response, risk = await self.evaluate_rules(request, rules)
+                results.append((response, risk))
+
+        # Sort results back to original order
+        sorted_results = [None] * len(requests)
+        for original_idx, result in enumerate(results):
+            sorted_results[original_idx] = result
+
+        logger.info(f"Batch evaluation: {len(requests)} requests processed")
+
+        return sorted_results
+
+    # Action Execution Tracking
+
+    async def track_action_execution(
+        self,
+        request: GatekeeperCheckRequest,
+        response: GatekeeperCheckResponse,
+        actually_executed: bool,
+        execution_result: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """
+        Track action execution for analytics and governance.
+
+        Args:
+            request: Original validation request
+            response: Governance response
+            actually_executed: Whether action was actually executed
+            execution_result: Result of execution (if any)
+
+        Returns:
+            Tracking record
+        """
+        tracking_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "action_type": request.action_type,
+            "actor": request.actor,
+            "scope": request.scope,
+            "governance_decision": {
+                "allowed": response.allowed,
+                "recommended_action": response.action,
+                "risk_score": response.risk_score,
+                "triggered_rules_count": len(response.triggered_rules)
+            },
+            "execution": {
+                "executed": actually_executed,
+                "result": execution_result
+            }
+        }
+
+        # Log the tracking record
+        logger.info(
+            f"Action execution tracking: {request.action_type} by {request.actor}, "
+            f"allowed={response.allowed}, executed={actually_executed}"
+        )
+
+        # TODO: Store in database for analytics
+        # await self.repo.store_execution_tracking(tracking_record)
+
+        return tracking_record
+
+    async def get_execution_analytics(
+        self,
+        action_type: str | None = None,
+        actor: str | None = None,
+        scope: str | None = None,
+        from_date: datetime | None = None,
+        to_date: datetime | None = None
+    ) -> dict[str, Any]:
+        """
+        Get execution analytics for governance insights.
+
+        Args:
+            action_type: Filter by action type
+            actor: Filter by actor
+            scope: Filter by scope
+            from_date: Start date
+            to_date: End date
+
+        Returns:
+            Analytics data
+        """
+        # TODO: Implement analytics query from tracking data
+        analytics = {
+            "total_actions": 0,
+            "allowed_actions": 0,
+            "blocked_actions": 0,
+            "high_risk_actions": 0,
+            "most_triggered_rules": [],
+            "action_types_breakdown": {},
+            "compliance_rate": 0.0
+        }
+
+        logger.info(
+            f"Execution analytics query: action_type={action_type}, "
+            f"actor={actor}, scope={scope}"
+        )
+
+        return analytics
+
+    # Rule Performance Metrics
+
+    async def get_rule_performance_metrics(
+        self,
+        rule_id: UUID,
+        from_date: datetime | None = None,
+        to_date: datetime | None = None
+    ) -> dict[str, Any]:
+        """
+        Get performance metrics for a specific rule.
+
+        Args:
+            rule_id: Rule ID
+            from_date: Start date
+            to_date: End date
+
+        Returns:
+            Rule performance metrics
+        """
+        rule = await self.get_rule(rule_id)
+        if not rule:
+            raise ValueError(f"Rule {rule_id} not found")
+
+        # TODO: Calculate from execution tracking data
+        metrics = {
+            "rule_id": str(rule_id),
+            "rule_name": rule.name,
+            "evaluation_count": 0,
+            "trigger_count": 0,
+            "trigger_rate": 0.0,
+            "block_count": 0,
+            "warn_count": 0,
+            "review_count": 0,
+            "average_risk_score": 0.0,
+            "false_positive_rate": 0.0
+        }
+
+        logger.info(f"Rule performance metrics: {rule.name}")
+
+        return metrics

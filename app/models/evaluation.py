@@ -6,7 +6,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Boolean, DateTime, Float, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -125,17 +125,11 @@ class EvaluationMetric(BaseModel):
     metric_id: UUID = Field(default_factory=uuid4, description="Unique metric identifier")
     metric_type: MetricType = Field(..., description="Type of metric")
     metric_value: float = Field(..., ge=0.0, le=1.0, description="Metric value (0-1)")
+    # Note: field constraint handles validation, no custom validator needed
     metric_level: MetricLevel = Field(..., description="Performance level")
     context: dict[str, Any] = Field(default_factory=dict, description="Additional context")
     scope: str | None = Field(None, description="Metric scope")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Metric timestamp")
-
-    @validator('metric_value')
-    def validate_metric_value(cls, v):
-        """Validate metric value is between 0 and 1."""
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("Metric value must be between 0.0 and 1.0")
-        return v
 
 
 class BenchmarkResult(BaseModel):

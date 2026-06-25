@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, Float, JSON, String, Text, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column
@@ -113,15 +113,17 @@ class GovernanceRule(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
-    @validator('name')
-    def validate_name(cls, v):
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
         """Validate rule name."""
         if not v.strip():
             raise ValueError("Rule name cannot be empty")
         return v.strip()
 
-    @validator('condition')
-    def validate_condition(cls, v):
+    @field_validator('condition')
+    @classmethod
+    def validate_condition(cls, v: Any) -> dict[str, Any]:
         """Validate rule condition."""
         if not isinstance(v, dict):
             raise ValueError("Condition must be a dictionary")

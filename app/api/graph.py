@@ -254,3 +254,149 @@ async def list_edge_types() -> list[str]:
     Returns the list of valid edge types according to the specification.
     """
     return EDGE_TYPES
+
+
+# Advanced Graph Analysis Endpoints
+
+@router.get("/nodes/{node_id}/centrality")
+async def get_node_centrality(
+    node_id: UUID,
+    centrality_type: str = Query("degree", description="Type of centrality (degree, betweenness, eigenvector, pagerank)"),
+    session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """
+    Calculate centrality measure for a node.
+
+    Centrality measures identify the most important nodes in the graph:
+    - **degree**: Number of connections
+    - **betweenness**: How often a node lies on shortest paths
+    - **eigenvector**: Influence based on connections to influential nodes
+    - **pagerank**: Google's PageRank algorithm
+    """
+    try:
+        service = GraphService(session)
+        score = await service.get_node_centrality(node_id, centrality_type)
+        return {"node_id": str(node_id), "centrality_type": centrality_type, "score": score}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.get("/clusters")
+async def get_community_clusters(
+    cluster_method: str = Query("louvain", description="Clustering method (louvain, label_propagation, greedy)"),
+    min_cluster_size: int = Query(3, ge=1, description="Minimum cluster size"),
+    session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """
+    Detect communities/clusters in the graph.
+
+    Community detection groups related nodes together.
+    Useful for identifying themes, topics, or natural groupings.
+
+    - **louvain**: Louvain method (fast, good for large graphs)
+    - **label_propagation**: Label propagation (fast, approximate)
+    - **greedy**: Greedy modularity maximization (slower, more accurate)
+    """
+    service = GraphService(session)
+    clusters = await service.get_community_clusters(cluster_method, min_cluster_size)
+    return {
+        "cluster_method": cluster_method,
+        "min_cluster_size": min_cluster_size,
+        "cluster_count": len(clusters),
+        "clusters": clusters
+    }
+
+
+@router.post("/subgraph/extract")
+async def extract_subgraph(
+    seed_node_ids: list[UUID],
+    max_depth: int = Query(2, ge=1, le=5, description="Maximum depth from seed nodes"),
+    max_nodes: int = Query(100, ge=1, le=500, description="Maximum nodes to include"),
+    session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """
+    Extract a subgraph around seed nodes.
+
+    Creates a focused view of the graph around specific nodes.
+    Useful for visualizing local context and relationships.
+
+    - **seed_node_ids**: Starting nodes for the subgraph
+    - **max_depth**: How many hops to explore
+    - **max_nodes**: Maximum size limit
+    """
+    service = GraphService(session)
+    result = await service.extract_subgraph(seed_node_ids, max_depth, max_nodes)
+    return result
+
+
+@router.get("/path/{source_id}/{target_id}/ranked")
+async def find_paths_ranked(
+    source_id: UUID,
+    target_id: UUID,
+    max_paths: int = Query(10, ge=1, le=20, description="Maximum paths to return"),
+    max_length: int = Query(5, ge=1, le=10, description="Maximum path length"),
+    session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """
+    Find multiple paths between nodes, ranked by quality.
+
+    Unlike shortest path, this returns multiple alternative paths
+    ranked by a quality score combining weight and length.
+
+    - **source_id**: Starting node
+    - **target_id**: Destination node
+    - **max_paths**: Number of alternative paths
+    - **max_length**: Maximum hops per path
+    """
+    try:
+        service = GraphService(session)
+        paths = await service.find_paths_ranked(source_id, target_id, max_paths, max_length)
+        return {
+            "source_id": str(source_id),
+            "target_id": str(target_id),
+            "path_count": len(paths),
+            "paths": paths
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.get("/path/{source_id}/{target_id}/bidirectional")
+async def bidirectional_search(
+    source_id: UUID,
+    target_id: UUID,
+    max_depth: int = Query(5, ge=1, le=10, description="Maximum search depth"),
+    session: AsyncSession = Depends(get_db_session)
+) -> GraphTraversalResult | None:
+    """
+    Bidirectional BFS search for shortest path.
+
+    More efficient than standard BFS for finding shortest paths
+    in large graphs by searching from both ends simultaneously.
+
+    - **source_id**: Starting node
+    - **target_id**: Destination node
+    - **max_depth**: Maximum search depth from each side
+    """
+    try:
+        service = GraphService(session)
+        result = await service.bidirectional_search(source_id, target_id, max_depth)
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No path found between nodes {source_id} and {target_id}"
+            )
+
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )

@@ -6,7 +6,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, Float, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -148,28 +148,13 @@ class RetrievalOptimization(BaseModel):
     Retrieval optimization parameters.
     """
     top_k: int = Field(default=10, ge=1, le=100, description="Top K results")
+    # Note: field constraint handles validation, no custom validator needed
     min_confidence: float = Field(default=0.3, ge=0.0, le=1.0, description="Minimum confidence")
     semantic_weight: float = Field(default=0.7, ge=0.0, le=1.0, description="Weight for semantic similarity")
     case_relevance_weight: float = Field(default=0.2, ge=0.0, le=1.0, description="Weight for case relevance")
     confidence_weight: float = Field(default=0.1, ge=0.0, le=1.0, description="Weight for confidence score")
     recency_weight: float = Field(default=0.05, ge=0.0, le=1.0, description="Weight for recency")
     trust_weight: float = Field(default=0.05, ge=0.0, le=1.0, description="Weight for trust score")
-
-    @validator('top_k')
-    def validate_top_k(cls, v):
-        """Validate top_k is reasonable."""
-        if v > 100:
-            raise ValueError("Top K cannot exceed 100")
-        if v < 1:
-            raise ValueError("Top K must be at least 1")
-        return v
-
-    @validator('semantic_weight', 'case_relevance_weight', 'confidence_weight')
-    def validate_weights(cls, v):
-        """Validate individual weights."""
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("Weights must be between 0.0 and 1.0")
-        return v
 
 
 class RetrievalFeedback(BaseModel):

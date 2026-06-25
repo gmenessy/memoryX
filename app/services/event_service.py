@@ -7,8 +7,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.logging_config import get_logger, log_service_action, log_error
 from app.models.event import EventCreate, EventResponse, EVENT_TYPES
 from app.repositories.event_repository import EventRepository
+
+logger = get_logger(__name__)
 
 
 class EventService:
@@ -34,22 +37,31 @@ class EventService:
         Raises:
             ValueError: If event type is invalid
         """
-        # Validate event type
-        if event_data.event_type not in EVENT_TYPES:
-            raise ValueError(
-                f"Invalid event type: {event_data.event_type}. "
-                f"Must be one of: {', '.join(EVENT_TYPES)}"
-            )
+        logger.info(f"Creating event: {event_data.event_type} by {event_data.actor}")
 
-        # Validate required fields
-        if not event_data.actor:
-            raise ValueError("Actor is required")
+        try:
+            # Validate event type
+            if event_data.event_type not in EVENT_TYPES:
+                raise ValueError(
+                    f"Invalid event type: {event_data.event_type}. "
+                    f"Must be one of: {', '.join(EVENT_TYPES)}"
+                )
 
-        if not event_data.scope:
-            raise ValueError("Scope is required")
+            # Validate required fields
+            if not event_data.actor:
+                raise ValueError("Actor is required")
 
-        # Create event via repository
-        return await self.repository.create(event_data)
+            if not event_data.scope:
+                raise ValueError("Scope is required")
+
+            # Create event via repository
+            result = await self.repository.create(event_data)
+            log_service_action("EventService", "create_event", event_id=str(result.id), event_type=event_data.event_type)
+            return result
+
+        except Exception as e:
+            log_error("EventService.create_event", e, event_type=event_data.event_type, actor=event_data.actor)
+            raise
 
     async def get_event(self, event_id: UUID) -> EventResponse | None:
         """

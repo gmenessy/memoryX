@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, Float, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -74,8 +74,9 @@ class MemoryPatch(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence in this patch")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
-    @validator('patch_type')
-    def validate_patch_type(cls, v):
+    @field_validator('patch_type')
+    @classmethod
+    def validate_patch_type(cls, v: str) -> str:
         """Validate patch type is one of the allowed types."""
         allowed_types = [
             "update",      # Direct update of memory content
@@ -89,8 +90,9 @@ class MemoryPatch(BaseModel):
             raise ValueError(f"Invalid patch_type: {v}. Must be one of: {', '.join(allowed_types)}")
         return v
 
-    @validator('reason')
-    def validate_reason(cls, v):
+    @field_validator('reason')
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
         """Validate reason is not empty."""
         if not v.strip():
             raise ValueError("Reason cannot be empty")

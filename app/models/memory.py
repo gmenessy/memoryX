@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, Float, JSON, String, Text, Index
 from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -90,8 +90,9 @@ class MemoryCard(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
-    @validator('memory_type')
-    def validate_memory_type(cls, v):
+    @field_validator('memory_type')
+    @classmethod
+    def validate_memory_type(cls, v: str) -> str:
         """Validate memory type is one of the allowed types."""
         allowed_types = [
             "episodic",
@@ -107,15 +108,17 @@ class MemoryCard(BaseModel):
             raise ValueError(f"Invalid memory_type: {v}. Must be one of: {', '.join(allowed_types)}")
         return v
 
-    @validator('title')
-    def validate_title(cls, v):
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v: str) -> str:
         """Validate title is not empty."""
         if not v.strip():
             raise ValueError("Title cannot be empty")
         return v.strip()
 
-    @validator('content')
-    def validate_content(cls, v):
+    @field_validator('content')
+    @classmethod
+    def validate_content(cls, v: str) -> str:
         """Validate content is not empty."""
         if not v.strip():
             raise ValueError("Content cannot be empty")

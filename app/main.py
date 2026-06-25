@@ -1,16 +1,15 @@
 """
 Main FastAPI Application for BrainDump NextGen
 """
-import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from app.config import settings
 from app.database import init_db
+from app.logging_config import setup_logging, get_logger
+from app.error_handlers import register_exception_handlers
 from app.api.events import router as events_router
 from app.api.memory import router as memory_router
 from app.api.evolution import router as evolution_router
@@ -24,12 +23,9 @@ from app.api.dream import router as dream_router
 from app.api.auth import router as auth_router
 from app.api.rate_limit import limiter
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+# Setup structured logging
+setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -48,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     yield
 
-    # Shutdown logic here
+    # Shutdown logic
     logger.info("Application shutdown complete")
 
 
@@ -56,14 +52,101 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="An Agentic Memory Operating System for GenAI Applications",
+    description="""## BrainDump NextGen
+
+An Agentic Memory Operating System for GenAI Applications.
+
+### Features
+- **Event System**: Append-only truth layer for auditability
+- **Memory Cards**: Typed information storage with 8 memory types
+- **Evolution Memory**: Memory evolution through patches with fitness scoring
+- **Governance**: Executable memory rules and policies
+- **Memory Graph**: Knowledge relationship management
+- **fRAG Engine**: Fragment-aware retrieval generation
+- **Evaluation Layer**: Quality metrics and benchmarking
+- **Dream Engine**: Asynchronous consolidation
+
+### Authentication
+Most endpoints require authentication. Use the `/api/auth/login` endpoint to obtain a JWT token.
+
+### Rate Limiting
+API requests are rate-limited. Default: 100 requests per minute per IP.
+
+### Documentation
+- Interactive Swagger UI: `/docs`
+- ReDoc: `/redoc`
+- OpenAPI JSON: `/openapi.json`
+""",
     debug=settings.debug,
-    lifespan=lifespan
+    lifespan=lifespan,
+    contact={
+        "name": "BrainDump NextGen Team",
+        "url": "https://github.com/braindump-nextgen",
+    },
+    license_info={
+        "name": "TBD",
+    },
+    openapi_tags=[
+        {
+            "name": "Events",
+            "description": "Event system operations - append-only truth layer",
+        },
+        {
+            "name": "Memory",
+            "description": "Memory card operations - typed information storage",
+        },
+        {
+            "name": "Evolution",
+            "description": "Memory evolution operations - patches and fitness",
+        },
+        {
+            "name": "Governance",
+            "description": "Governance rules and policy operations",
+        },
+        {
+            "name": "Gatekeeper",
+            "description": "Memory gatekeeper validation and risk assessment",
+        },
+        {
+            "name": "Graph",
+            "description": "Memory graph operations - knowledge relationships",
+        },
+        {
+            "name": "fRAG",
+            "description": "Fragment-aware retrieval generation",
+        },
+        {
+            "name": "Evaluation",
+            "description": "Quality metrics and benchmarking",
+        },
+        {
+            "name": "Dream",
+            "description": "Dream engine for memory consolidation",
+        },
+        {
+            "name": "Auth",
+            "description": "Authentication and authorization",
+        },
+        {
+            "name": "Swarm",
+            "description": "Multi-agent orchestration",
+        },
+        {
+            "name": "Health",
+            "description": "Health check and system status",
+        },
+        {
+            "name": "Root",
+            "description": "Root endpoints",
+        },
+    ],
 )
+
+# Register exception handlers
+register_exception_handlers(app)
 
 # Apply rate limiter to the app
 app.state.limiter = limiter
-
 
 # CORS Middleware
 app.add_middleware(
@@ -86,53 +169,6 @@ app.include_router(graph_router)
 app.include_router(frag_router)
 app.include_router(evaluation_router)
 app.include_router(swarm_router)
-
-
-# Exception Handlers
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """
-    Global exception handler for unhandled exceptions.
-    """
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": "Internal Server Error",
-            "message": str(exc) if settings.debug else "An unexpected error occurred"
-        }
-    )
-
-
-@app.exception_handler(status.HTTP_429_TOO_MANY_REQUESTS)
-async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
-    """
-    Rate limit exceeded handler.
-    """
-    return JSONResponse(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        content={
-            "error": "Rate limit exceeded",
-            "message": "Too many requests. Please try again later.",
-            "retry_after": getattr(exc, "retry_after", 60)
-        },
-        headers={
-            "Retry-After": str(getattr(exc, "retry_after", 60))
-        }
-    )
-    """
-    Global exception handler for unhandled exceptions.
-    """
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": "Internal Server Error",
-            "message": str(exc) if settings.debug else "An unexpected error occurred"
-        }
-    )
 
 
 # API Endpoints

@@ -6,7 +6,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, JSON, String, Text, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -153,8 +153,9 @@ class GraphNode(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
-    @validator('label')
-    def validate_label(cls, v):
+    @field_validator('label')
+    @classmethod
+    def validate_label(cls, v: str) -> str:
         """Validate label is not empty."""
         if not v.strip():
             raise ValueError("Label cannot be empty")
@@ -170,15 +171,9 @@ class GraphEdge(BaseModel):
     target_node: UUID = Field(..., description="Target node ID")
     edge_type: EdgeType = Field(..., description="Type of relationship")
     weight: float = Field(default=1.0, ge=0.0, le=1.0, description="Relationship weight (0-1)")
+    # Note: field constraint handles validation, no custom validator needed
     properties: dict[str, Any] = Field(default_factory=dict, description="Additional edge properties")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-
-    @validator('weight')
-    def validate_weight(cls, v):
-        """Validate weight is between 0 and 1."""
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("Weight must be between 0.0 and 1.0")
-        return v
 
 
 class GraphNodeCreate(BaseModel):

@@ -7,8 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import CONFIDENCE_MAX, CONFIDENCE_MIN, MAX_LIMIT, MIN_LIMIT, MIN_OFFSET
 from app.exceptions import NotFoundError, ValidationError
+from app.logging_config import get_logger, log_service_action, log_error
 from app.models.memory import MemoryCardCreate, MemoryCardUpdate, MemoryCardResponse, MEMORY_TYPES
 from app.repositories.memory_repository import MemoryRepository
+
+logger = get_logger(__name__)
 
 
 class MemoryService:
@@ -34,33 +37,42 @@ class MemoryService:
         Raises:
             ValueError: If validation fails
         """
-        # Validate memory type
-        if memory_data.memory_type not in MEMORY_TYPES:
-            raise ValidationError(
-                f"Invalid memory type: {memory_data.memory_type}. "
-                f"Must be one of: {', '.join(MEMORY_TYPES)}",
-                details={"memory_type": memory_data.memory_type, "valid_types": MEMORY_TYPES}
-            )
+        logger.info(f"Creating memory card: {memory_data.title}")
 
-        # Validate confidence range
-        if not CONFIDENCE_MIN <= memory_data.confidence <= CONFIDENCE_MAX:
-            raise ValidationError(
-                f"Confidence must be between {CONFIDENCE_MIN} and {CONFIDENCE_MAX}",
-                details={"confidence": memory_data.confidence, "valid_range": (CONFIDENCE_MIN, CONFIDENCE_MAX)}
-            )
+        try:
+            # Validate memory type
+            if memory_data.memory_type not in MEMORY_TYPES:
+                raise ValidationError(
+                    f"Invalid memory type: {memory_data.memory_type}. "
+                    f"Must be one of: {', '.join(MEMORY_TYPES)}",
+                    details={"memory_type": memory_data.memory_type, "valid_types": MEMORY_TYPES}
+                )
 
-        # Validate required fields
-        if not memory_data.title.strip():
-            raise ValidationError("Title cannot be empty", details={"field": "title"})
+            # Validate confidence range
+            if not CONFIDENCE_MIN <= memory_data.confidence <= CONFIDENCE_MAX:
+                raise ValidationError(
+                    f"Confidence must be between {CONFIDENCE_MIN} and {CONFIDENCE_MAX}",
+                    details={"confidence": memory_data.confidence, "valid_range": (CONFIDENCE_MIN, CONFIDENCE_MAX)}
+                )
 
-        if not memory_data.content.strip():
-            raise ValidationError("Content cannot be empty", details={"field": "content"})
+            # Validate required fields
+            if not memory_data.title.strip():
+                raise ValidationError("Title cannot be empty", details={"field": "title"})
 
-        if not memory_data.scope:
-            raise ValidationError("Scope is required", details={"field": "scope"})
+            if not memory_data.content.strip():
+                raise ValidationError("Content cannot be empty", details={"field": "content"})
 
-        # Create memory via repository
-        return await self.repository.create(memory_data)
+            if not memory_data.scope:
+                raise ValidationError("Scope is required", details={"field": "scope"})
+
+            # Create memory via repository
+            result = await self.repository.create(memory_data)
+            log_service_action("MemoryService", "create_memory", memory_id=str(result.id))
+            return result
+
+        except Exception as e:
+            log_error("MemoryService.create_memory", e, memory_data=memory_data.title)
+            raise
 
     async def get_memory(self, memory_id: UUID) -> MemoryCardResponse | None:
         """
