@@ -65,4 +65,6 @@ async def test_client(test_db):
 def event_loop_policy():
     """Event loop policy for async tests."""
     import asyncio
-    return asyncio.DefaultEventLoopPolicy()
+    policy = asyncio.DefaultEventLoopPolicy()
+    asyncio.set_event_loop_policy(policy)
+    return policy

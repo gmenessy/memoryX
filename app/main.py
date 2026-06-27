@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
@@ -21,6 +22,7 @@ from app.api.swarm import router as swarm_router
 from app.api.gatekeeper import router as gatekeeper_router
 from app.api.dream import router as dream_router
 from app.api.auth import router as auth_router
+from app.api.planning import router as planning_router
 from app.api.rate_limit import limiter
 
 # Setup structured logging
@@ -132,6 +134,10 @@ API requests are rate-limited. Default: 100 requests per minute per IP.
             "description": "Multi-agent orchestration",
         },
         {
+            "name": "Planning",
+            "description": "Decision making and goal decomposition",
+        },
+        {
             "name": "Health",
             "description": "Health check and system status",
         },
@@ -169,6 +175,7 @@ app.include_router(graph_router)
 app.include_router(frag_router)
 app.include_router(evaluation_router)
 app.include_router(swarm_router)
+app.include_router(planning_router)
 
 
 # API Endpoints

@@ -49,7 +49,7 @@ async def init_db() -> None:
     Must import models to ensure they are registered with Base.
     """
     # Import models to ensure they are registered
-    from app.models import event, memory, evolution, governance, graph, frag, evaluation, user
+    from app.models import event, memory, evolution, governance, graph, frag, evaluation, user, planning
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
