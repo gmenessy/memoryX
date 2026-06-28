@@ -138,20 +138,21 @@ Database Models (app/models/) → SQLite/PostgreSQL
 - `app/swarm/` - Multi-agent orchestration components
 - `tests/` - pytest test suite (80%+ coverage required)
 
-**Core Systems (Sprint 1-4 Complete):**
+**Core Systems (Sprint 1-7 Complete):**
 1. **Event System** - Append-only truth layer with 10 event types
 2. **Memory Card System** - Typed information storage with 8 memory types
 3. **Evolution Memory** - Memory evolution through patches with fitness scoring
-4. **Authentication** - JWT-based with role-based access
+4. **Authentication System** - JWT-based with role-based access control
 5. **Governance** - Executable memory rules and policies
-6. **Memory Graph** - Knowledge relationship management
-7. **fRAG Engine** - Fragment-aware retrieval generation
+6. **Memory Graph** - Knowledge relationship management with NetworkX
+7. **fRAG Engine** - Fragment-aware retrieval generation with semantic search
 8. **Evaluation Layer** - Quality metrics and benchmarking
 9. **Dream Engine** - Asynchronous consolidation (daydream, nightdream, deepdream)
-10. **Memory Gatekeeper** - Critical validation component
+10. **Memory Gatekeeper** - Critical validation component with risk assessment
 11. **Planning System** - Multi-step agent task planning with dependency tracking
 12. **Swarm System** - Multi-agent orchestration and coordination
 13. **Rate Limiting** - Request throttling with configurable limits
+14. **Darwin System** - Self-improving AI with reflection and optimization
 
 ## Key Conventions
 
